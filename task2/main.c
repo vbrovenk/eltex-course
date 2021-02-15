@@ -7,8 +7,8 @@
 
 int shops[5] = {1000, 1050, 1100, 1150, 1200};
 
-// -1 - shop is empty
-int occupied_shop[5] = {-1, -1, -1, -1, -1};
+// mutexes for every shop
+pthread_mutex_t mutexes[5];
 
 typedef struct customer {
     int id;
@@ -20,11 +20,12 @@ void    *load_products(void *args) {
 
     while (1) {
         id_loading_shop = rand() % 5;
-        occupied_shop[id_loading_shop] = 0;
-        shops[id_loading_shop] += 200;
-        printf("Load in shop %d +200 -> shop balance: %d\n", id_loading_shop, shops[id_loading_shop]);
-        sleep(1);
-        occupied_shop[id_loading_shop] = -1;
+        if (pthread_mutex_trylock(&mutexes[id_loading_shop]) == 0) {
+            shops[id_loading_shop] += 200;
+            printf("Load in shop %d +200 -> shop balance: %d\n", id_loading_shop, shops[id_loading_shop]);
+            sleep(1);
+            pthread_mutex_unlock(&mutexes[id_loading_shop]);
+        }
     }
 }
 
@@ -32,10 +33,9 @@ void    *buy_products(void *arg) {
     t_customer *customer = (t_customer *)arg;
     int id_shop = 0;
 
-    while (1) {
+     while (1) {
         // check if shop is empty
-        if (occupied_shop[id_shop] == -1) {
-            occupied_shop[id_shop] = 0;
+        if (pthread_mutex_trylock(&mutexes[id_shop]) == 0) {
             if (shops[id_shop] > SUM_OF_PURCHASE) {
                 shops[id_shop] -= SUM_OF_PURCHASE;
                 if (customer->full_need - SUM_OF_PURCHASE < 0)
@@ -50,7 +50,7 @@ void    *buy_products(void *arg) {
                 break ;
             }
             sleep(3);
-            occupied_shop[id_shop] = -1;
+            pthread_mutex_unlock(&mutexes[id_shop]);
         }
         id_shop++;
         if (id_shop == 5)
@@ -86,6 +86,9 @@ int     main(int argc, char *argv) {
     }
     print_customers(customers);
 
+    for (int i = 0; i < 5; i++)
+        pthread_mutex_init(&mutexes[i], NULL);
+
     int status = pthread_create(&thread_loader, NULL, load_products, NULL);
     for (int i = 0; i < 3; i++) {
         pthread_create(&thread_customer[i], NULL, buy_products, (void *) &customers[i]);
@@ -97,6 +100,9 @@ int     main(int argc, char *argv) {
     pthread_detach(thread_loader);
 
     pthread_join(thread_loader, (void**)&status_addr);
+
+    for (int i = 0; i < 5; i++)
+        pthread_mutex_destroy(&mutexes[i]);
 
     return (0);
 }
